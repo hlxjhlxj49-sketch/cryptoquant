@@ -1,0 +1,13 @@
+# CryptoQuant - 顶层依赖（宽松约束）
+# 运行 pip-compile requirements.in 生成锁定的 requirements.txt
+
+ccxt>=4.0.0
+pandas>=2.0.0
+numpy>=1.24.0
+streamlit>=1.28.0
+plotly>=5.17.0
+pandas-ta>=0.3.14b
+pyyaml>=6.0
+schedule>=1.2.0
+pytz>=2023.3
+python-dateutil>=2.8.2

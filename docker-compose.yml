@@ -1,0 +1,20 @@
+services:
+  cryptoquant:
+    build: .
+    image: cryptoquant:dev
+    ports:
+      - "8501:8501"
+    volumes:
+      # A 模式：挂载全部源码目录（均在 E 盘），改代码即时生效
+      - E:/crypto_quant/ui:/app/ui
+      - E:/crypto_quant/strategy:/app/strategy
+      - E:/crypto_quant/backtest:/app/backtest
+      - E:/crypto_quant/data:/app/data
+      - E:/crypto_quant/execution:/app/execution
+      - E:/crypto_quant/factor_builder:/app/factor_builder
+      - E:/crypto_quant/config:/app/config
+      - E:/crypto_quant/utils:/app/utils
+      - E:/crypto_quant/logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped

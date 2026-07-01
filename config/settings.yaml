@@ -1,0 +1,50 @@
+# ============================================
+#   加密货币量化交易系统 - 全局配置
+#   修改此文件后重启系统即可生效
+# ============================================
+
+# --- 数据存储 ---
+database:
+  path: "E:/crypto_quant/data/market.db"   # SQLite数据库路径
+  auto_backup: false                         # 是否自动备份
+
+# --- 默认交易所 ---
+exchange:
+  default: "binance"                         # 默认交易所（binance/okx/bybit）
+  test_mode: true                            # 测试模式（使用沙盒API，无需真钱）
+
+# --- 数据抓取 ---
+fetcher:
+  max_retries: 3                             # 请求失败最大重试次数
+  rate_limit_pause: 1.0                      # API限速等待（秒）
+  default_timeframe: "1h"                    # 默认K线周期（1m/5m/15m/1h/4h/1d）
+  default_limit: 500                         # 单次获取最大K线数量
+
+# --- 网络代理（国内访问币安等交易所需要） ---
+proxy:
+  enabled: true                               # 是否启用代理
+  http: "http://127.0.0.1:7897"              # HTTP代理地址（Clash Verge默认7897）
+  https: "http://127.0.0.1:7897"             # HTTPS代理地址
+
+# --- 交易品种 ---
+trading:
+  mode: "spot"                               # 交易模式：spot（现货）/ futures（合约）
+  quote_currency: "USDT"                     # 计价货币
+
+# --- 风险管理（默认值） ---
+risk:
+  max_position_pct: 20.0                     # 单笔最大仓位（占总资金百分比）
+  max_daily_loss_pct: 5.0                    # 单日最大亏损百分比
+  stop_loss_pct: 3.0                         # 默认止损百分比
+  take_profit_pct: 6.0                       # 默认止盈百分比
+
+# --- 界面 ---
+ui:
+  theme: "dark"                              # 主题（dark/light）
+  auto_refresh_seconds: 30                   # 行情自动刷新间隔（秒）
+  language: "zh"                             # 界面语言（zh/en）
+
+# --- 因子构建器 ---
+factor_builder:
+  use_ai: false                              # 是否使用AI辅助生成策略（需要Claude API Key）
+  ai_api_key: ""                             # Claude API Key（可选）
