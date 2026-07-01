@@ -2,7 +2,7 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# 系统依赖
+# 系统依赖（代理由 docker-compose build args 传入）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ \
     && rm -rf /var/lib/apt/lists/*
