@@ -1,11 +1,18 @@
+x-base: &base
+  build: .
+  ports:
+    - "8501:8501"
+  environment:
+    - TZ=Asia/Shanghai
+  restart: unless-stopped
+
 services:
+  # ===== 开发模式（默认）：挂载全部源码，改代码即时生效 =====
   cryptoquant:
-    build: .
+    <<: *base
     image: cryptoquant:dev
-    ports:
-      - "8501:8501"
+    profiles: [""]  # 默认启动（无 profile）
     volumes:
-      # A 模式：挂载全部源码目录（均在 E 盘），改代码即时生效
       - E:/crypto_quant/ui:/app/ui
       - E:/crypto_quant/strategy:/app/strategy
       - E:/crypto_quant/backtest:/app/backtest
@@ -15,6 +22,17 @@ services:
       - E:/crypto_quant/config:/app/config
       - E:/crypto_quant/utils:/app/utils
       - E:/crypto_quant/logs:/app/logs
-    environment:
-      - TZ=Asia/Shanghai
-    restart: unless-stopped
+
+  # ===== 生产模式：代码打包在镜像里，只挂载数据和用户策略 =====
+  cryptoquant-prod:
+    <<: *base
+    image: cryptoquant:prod
+    profiles: ["prod"]
+    volumes:
+      # 持久化数据
+      - E:/crypto_quant/data:/app/data
+      # 用户自定义策略目录
+      - E:/crypto_quant/user_strategies:/app/user_strategies
+    # 生产环境可在此覆盖配置
+    # environment:
+    #   - CRYPTOQUANT_ENV=production
