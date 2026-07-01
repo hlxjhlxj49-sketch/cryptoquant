@@ -66,9 +66,16 @@ preset_strategies = {
     "网格交易 10格": "strategy.examples.grid_trading",
 }
 
-# 获取用户生成的策略
+# 获取用户生成的策略（新文件夹结构 + 旧扁平兼容）
 user_strategies = list_generated_strategies()
-user_strategy_names = {s["name"]: s["path"] for s in user_strategies}
+user_strategy_names = {}
+for s in user_strategies:
+    if s.get("is_category"):
+        # 分类文件夹中的子策略
+        for child in s.get("children", []):
+            user_strategy_names[child.get("name", "")] = child["path"]
+    else:
+        user_strategy_names[s.get("name", "")] = s["path"]
 
 all_strategies = {**preset_strategies}
 for name, path in user_strategy_names.items():
@@ -238,10 +245,15 @@ if run_btn:
             progress_placeholder.error(f"❌ 加载预置策略失败: {e}")
             st.stop()
     else:
+        # 处理文件夹结构：user_strategies/{name}/strategy.py
+        py_path = strategy_path
+        if os.path.isdir(strategy_path):
+            py_path = os.path.join(strategy_path, "strategy.py")
+            if not os.path.exists(py_path):
+                progress_placeholder.error(f"❌ 策略文件不存在: {py_path}")
+                st.stop()
         try:
-            spec = importlib.util.spec_from_file_location(
-                "user_strategy", strategy_path
-            )
+            spec = importlib.util.spec_from_file_location("user_strategy", py_path)
             user_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(user_module)
             for attr_name in dir(user_module):

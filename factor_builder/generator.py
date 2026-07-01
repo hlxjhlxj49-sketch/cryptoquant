@@ -1,95 +1,78 @@
 """
-策略代码生成器
+策略代码生成器 + 策略库管理
 将用户描述 + 匹配的模板 → 生成完整的策略Python代码
+管理策略文件夹结构、删除、重命名、分类
 """
 
 import os
 import re
+import json
+import shutil
 from datetime import datetime
 from typing import Dict, List, Optional
 from factor_builder.templates import search_templates, get_all_templates
 from factor_builder.parser import parse, extract_params
 
 
-def _to_class_name(name: str) -> str:
-    """
-    将中文名称转为合法的Python类名
+# 用户策略根目录（文件夹结构）
+def _get_user_strategies_dir() -> str:
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "strategy", "user_strategies",
+    )
 
-    示例:
-        双均线金叉死叉 → MACrossGoldenDeathStrategy
-    """
-    # 如果已经是英文类名格式，直接返回
+
+def _get_preset_dir() -> str:
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "strategy", "examples",
+    )
+
+
+def _to_class_name(name: str) -> str:
+    """将中文名称转为合法的Python类名"""
     if re.match(r'^[A-Z][a-zA-Z0-9_]*$', name):
         return name
-
-    # 中英文混合，生成唯一名称
-    # 使用时间戳确保不重复
     timestamp = datetime.now().strftime("%H%M%S")
     return f"CustomStrategy_{timestamp}"
 
+
+# ============================================================
+# 策略代码生成
+# ============================================================
 
 def generate_strategy_code(
     user_input: str,
     template_name: Optional[str] = None,
     params_override: Optional[Dict] = None,
 ) -> Dict:
-    """
-    根据用户描述生成策略代码
-
-    参数:
-        user_input: 用户的自然语言描述
-        template_name: 强制使用某个模板（None则自动匹配）
-        params_override: 手动覆盖参数
-
-    返回:
-        {
-            "code": str,           # 生成的Python策略代码
-            "template": str,       # 使用的模板名称
-            "params": dict,        # 使用的参数
-            "description": str,    # 策略描述
-        }
-    """
-    # 1. 解析用户输入
+    """根据用户描述生成策略代码"""
     parsed = parse(user_input)
 
-    # 2. 匹配模板
     if template_name:
-        # 手动指定模板
         templates = [t for t in get_all_templates() if t["name"] == template_name]
     else:
-        # 自动搜索匹配
         templates = search_templates(user_input)
 
     if not templates:
-        # 无匹配模板：使用默认的双均线策略
         templates = [t for t in get_all_templates() if t["name"] == "双均线金叉死叉"]
 
     template = templates[0]
-
-    # 3. 提取参数
-    params = dict(template["default_params"])  # 默认参数
+    params = dict(template["default_params"])
     for indicator in parsed.indicators:
         extracted = extract_params(user_input, indicator["name"])
         params.update(extracted)
-
-    # 用户手动覆盖
     if params_override:
         params.update(params_override)
 
-    # 4. 生成类名
     class_name = _to_class_name(template["name"])
-
-    # 5. 填充模板
     code = template["code_template"]
     code = code.replace("{name}", template["name"])
     code = code.replace("{description}", template["description"])
     code = code.replace("{class_name}", class_name)
-
-    # 填充参数（模板中使用 {param_name} 格式）
     for key, value in params.items():
         code = code.replace(f"{{{key}}}", str(value))
 
-    # 6. 添加生成标记
     header = f"""# ============================================================
 # 自动生成的策略代码
 # 生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -109,82 +92,207 @@ def generate_strategy_code(
     }
 
 
+# ============================================================
+# 策略存储（文件夹结构）
+# ============================================================
+
 def save_strategy(code: str, name: str, output_dir: str = None) -> str:
-    """
-    保存策略代码到文件
-
-    参数:
-        code: 策略Python代码
-        name: 策略名称（用作文件名）
-        output_dir: 输出目录（默认为 strategy/examples/）
-
-    返回:
-        保存的文件路径
-    """
+    """兼容旧API：扁平保存到 examples/"""
     if output_dir is None:
-        output_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "strategy", "examples",
-        )
-
+        output_dir = _get_preset_dir()
     os.makedirs(output_dir, exist_ok=True)
-
-    # 生成安全的文件名
     safe_name = re.sub(r'[^\w\-_]', '_', name)
     filename = f"{safe_name}.py"
     filepath = os.path.join(output_dir, filename)
-
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(code)
-
     return filepath
 
 
-def list_generated_strategies(output_dir: str = None) -> List[Dict]:
+def save_strategy_with_meta(
+    code: str,
+    name: str,
+    description: str = "",
+    template: str = "",
+    category: str = "",
+) -> str:
     """
-    列出所有已生成的策略文件
+    保存策略到文件夹结构
+
+    创建 user_strategies/{name}/ 文件夹，内含:
+      - strategy.py    策略代码
+      - meta.json      元数据 {name, description, template, created, category}
+
+    返回: 策略文件夹路径
+    """
+    base_dir = _get_user_strategies_dir()
+    safe_name = re.sub(r'[\\/:*?"<>|]', '_', name).strip()
+    folder = os.path.join(base_dir, safe_name)
+    os.makedirs(folder, exist_ok=True)
+
+    # 写入策略代码
+    strategy_path = os.path.join(folder, "strategy.py")
+    with open(strategy_path, "w", encoding="utf-8") as f:
+        f.write(code)
+
+    # 写入元数据
+    meta = {
+        "name": name,
+        "description": description,
+        "template": template,
+        "category": category,
+        "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "modified": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    meta_path = os.path.join(folder, "meta.json")
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    return folder
+
+
+# ============================================================
+# 策略列表（递归扫描）
+# ============================================================
+
+def _read_meta(folder: str) -> Dict:
+    """读取策略文件夹的 meta.json"""
+    meta_path = os.path.join(folder, "meta.json")
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _is_strategy_folder(folder: str) -> bool:
+    """判断是否为策略文件夹（含 strategy.py）"""
+    return os.path.exists(os.path.join(folder, "strategy.py"))
+
+
+def _is_category_folder(folder: str) -> bool:
+    """判断是否为分类文件夹（含 .category 标记 或 不含 strategy.py）"""
+    return os.path.exists(os.path.join(folder, ".category"))
+
+
+def list_generated_strategies(include_preset: bool = False) -> List[Dict]:
+    """
+    列出所有用户策略（文件夹结构 + 旧扁平结构兼容）
 
     返回:
-        [{"name": ..., "path": ..., "modified": ...}, ...]
+        [{"name": str, "path": str, "is_generated": bool,
+          "is_category": bool, "children": [...], "modified": str,
+          "description": str, "template": str}, ...]
     """
-    if output_dir is None:
-        output_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "strategy", "examples",
-        )
+    results = []
 
-    if not os.path.exists(output_dir):
-        return []
+    # ---- 1. 扫描新文件夹结构 ----
+    base_dir = _get_user_strategies_dir()
+    if os.path.exists(base_dir):
+        for entry in sorted(os.listdir(base_dir)):
+            full = os.path.join(base_dir, entry)
+            if not os.path.isdir(full):
+                continue
+            if entry.startswith(".") or entry == "__pycache__":
+                continue
 
-    strategies = []
-    for fname in os.listdir(output_dir):
-        if fname.endswith(".py") and fname != "__init__.py":
-            fpath = os.path.join(output_dir, fname)
-            # 检查是否为自动生成的
+            if _is_category_folder(full):
+                # 分类文件夹
+                children = _scan_children(full)
+                meta = _read_meta(full)
+                results.append({
+                    "name": entry,
+                    "path": full,
+                    "is_generated": True,
+                    "is_category": True,
+                    "children": children,
+                    "modified": meta.get("modified", ""),
+                    "description": meta.get("description", ""),
+                    "template": meta.get("template", ""),
+                })
+            elif _is_strategy_folder(full):
+                meta = _read_meta(full)
+                results.append({
+                    "name": meta.get("name", entry),
+                    "display_name": meta.get("template") or meta.get("name", entry),
+                    "path": full,
+                    "is_generated": True,
+                    "is_category": False,
+                    "children": [],
+                    "modified": meta.get("modified", ""),
+                    "description": meta.get("description", ""),
+                    "template": meta.get("template", ""),
+                })
+
+    # ---- 2. 兼容旧扁平结构 (strategy/examples/) ----
+    old_dir = _get_preset_dir()
+    if os.path.exists(old_dir):
+        for fname in sorted(os.listdir(old_dir)):
+            if not fname.endswith(".py") or fname == "__init__.py":
+                continue
+            fpath = os.path.join(old_dir, fname)
+            # 排除预置示例
+            preset_names = {"ma_cross.py", "rsi_strategy.py", "grid_trading.py"}
+            if fname in preset_names:
+                continue
             with open(fpath, "r", encoding="utf-8") as f:
                 first_line = f.readline()
                 is_generated = "自动生成的策略代码" in first_line
-
-            strategies.append({
+            results.append({
                 "name": fname.replace(".py", ""),
+                "display_name": fname.replace(".py", ""),
                 "path": fpath,
                 "is_generated": is_generated,
+                "is_category": False,
+                "children": [],
                 "modified": datetime.fromtimestamp(os.path.getmtime(fpath)).strftime("%Y-%m-%d %H:%M"),
+                "description": "",
+                "template": "",
+                "_legacy": True,
             })
 
-    return sorted(strategies, key=lambda x: x["modified"], reverse=True)
+    return sorted(results, key=lambda x: (
+        not x["is_category"],  # 分类先显示
+        x["name"],
+    ))
 
+
+def _scan_children(parent_dir: str) -> List[Dict]:
+    """递归扫描分类文件夹下的子策略"""
+    children = []
+    if not os.path.isdir(parent_dir):
+        return children
+    for entry in sorted(os.listdir(parent_dir)):
+        full = os.path.join(parent_dir, entry)
+        if not os.path.isdir(full) or entry.startswith("."):
+            continue
+        if _is_strategy_folder(full):
+            meta = _read_meta(full)
+            children.append({
+                "name": meta.get("name", entry),
+                "display_name": meta.get("template") or meta.get("name", entry),
+                "path": full,
+                "is_generated": True,
+                "is_category": False,
+                "modified": meta.get("modified", ""),
+                "description": meta.get("description", ""),
+                "template": meta.get("template", ""),
+            })
+    return children
+
+
+# ============================================================
+# 策略读取
+# ============================================================
 
 def load_strategy_code(filepath: str) -> str:
-    """
-    加载已保存的策略代码
-
-    参数:
-        filepath: 策略文件路径
-
-    返回:
-        Python代码字符串
-    """
+    """加载策略代码（兼容文件夹和扁平结构）"""
+    if os.path.isdir(filepath):
+        py_path = os.path.join(filepath, "strategy.py")
+        if os.path.exists(py_path):
+            filepath = py_path
     if not os.path.exists(filepath):
         return ""
     with open(filepath, "r", encoding="utf-8") as f:
@@ -193,27 +301,25 @@ def load_strategy_code(filepath: str) -> str:
 
 def extract_strategy_info(filepath: str) -> Dict:
     """
-    从已保存的策略 .py 文件中提取结构化信息
+    从策略文件夹/.py 文件提取结构化信息
 
-    解析文件头部的元数据注释（由 generate_strategy_code 生成）：
-      # 用户描述: xxx
-      # 匹配模板: xxx
-
-    再从 docstring 中提取描述，从 class 定义提取类名
-
-    参数:
-        filepath: 策略 .py 文件路径
-
-    返回:
-        {
-            "name": str,            # 策略名称（类名）
-            "display_name": str,    # 显示名称（模板名或类名）
-            "description": str,     # 策略描述（来自用户描述或docstring）
-            "template": str,        # 匹配的模板名
-            "code": str,            # 完整代码
-            "generated_time": str,  # 生成时间
-        }
+    优先读取 meta.json，回退到头部注释解析
     """
+    # 优先读 meta.json
+    if os.path.isdir(filepath):
+        meta = _read_meta(filepath)
+        if meta:
+            code = load_strategy_code(filepath)
+            return {
+                "name": meta.get("name", ""),
+                "display_name": meta.get("template") or meta.get("name", ""),
+                "description": meta.get("description", ""),
+                "template": meta.get("template", ""),
+                "code": code,
+                "generated_time": meta.get("created", ""),
+            }
+
+    # 回退：旧扁平 .py 文件
     code = load_strategy_code(filepath)
     if not code:
         return {"name": "", "display_name": "", "description": "",
@@ -227,8 +333,7 @@ def extract_strategy_info(filepath: str) -> Dict:
         "code": code,
         "generated_time": "",
     }
-
-    for line in code.split("\n")[:20]:  # 只扫描头部
+    for line in code.split("\n")[:20]:
         line = line.strip()
         if line.startswith("# 用户描述:"):
             info["description"] = line.replace("# 用户描述:", "").strip()
@@ -237,7 +342,6 @@ def extract_strategy_info(filepath: str) -> Dict:
         elif line.startswith("# 生成时间:"):
             info["generated_time"] = line.replace("# 生成时间:", "").strip()
 
-    # 如果头部有模板名，优先当作显示名
     if info["template"]:
         info["display_name"] = info["template"]
     elif info["description"]:
@@ -245,113 +349,190 @@ def extract_strategy_info(filepath: str) -> Dict:
     else:
         info["display_name"] = info["name"]
 
-    # 如果没有 description，尝试从 docstring 提取
     if not info["description"]:
         match = re.search(r'"""(.*?)"""', code, re.DOTALL)
         if match:
             doc = match.group(1).strip()
-            # 取第一行非空内容
             for doc_line in doc.split("\n"):
                 doc_line = doc_line.strip()
                 if doc_line and not doc_line.startswith("参数") and not doc_line.startswith("描述"):
                     info["description"] = doc_line
                     break
-
     return info
 
 
 def update_strategy_description(filepath: str, description: str) -> None:
-    """
-    在已有策略文件中追加或更新用户描述元数据行
-
-    参数:
-        filepath: 策略文件路径
-        description: 用户原始描述
-    """
+    """更新策略描述"""
+    if os.path.isdir(filepath):
+        meta = _read_meta(filepath)
+        meta["description"] = description
+        meta["modified"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(os.path.join(filepath, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+        return
+    # 旧扁平文件
     code = load_strategy_code(filepath)
     if not code:
         return
-
     lines = code.split("\n")
     new_lines = []
-    found_desc = False
-    inserted = False
-
+    found = False
     for line in lines:
-        if line.startswith("# 用户描述:") and not inserted:
+        if line.startswith("# 用户描述:") and not found:
             new_lines.append(f"# 用户描述: {description}")
-            found_desc = True
-            inserted = True
+            found = True
         else:
             new_lines.append(line)
-
-    # 如果文件中不存在该行，在文件头注释区域末尾插入
-    if not found_desc:
+    if not found:
         output = []
-        header_done = False
         for line in new_lines:
             output.append(line)
-            if not header_done and line.startswith("# ======="):
+            if line.startswith("# ======="):
                 output.insert(-1, f"# 用户描述: {description}")
-                header_done = True
-
         final_code = "\n".join(output)
     else:
         final_code = "\n".join(new_lines)
-
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(final_code)
 
 
-def save_strategy_with_meta(
-    code: str,
-    name: str,
-    description: str = "",
-    template: str = "",
-    output_dir: str = None,
-) -> str:
-    """
-    保存策略代码并附带结构化元数据
+# ============================================================
+# 策略管理（删除、重命名、分类）
+# ============================================================
 
-    参数:
-        code: 策略Python代码
-        name: 策略名称（用作文件名）
-        description: 用户原始策略描述
-        template: 匹配的模板名
-        output_dir: 输出目录
-
-    返回:
-        保存的文件路径
+def delete_strategy(folder_path: str) -> bool:
     """
-    if output_dir is None:
-        output_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "strategy", "examples",
+    删除策略文件夹（含 strategy.py + meta.json）
+
+    返回: True 成功
+    """
+    if not os.path.exists(folder_path):
+        return False
+    if os.path.isdir(folder_path):
+        shutil.rmtree(folder_path)
+    else:
+        os.remove(folder_path)
+    return True
+
+
+def rename_strategy(folder_path: str, new_name: str) -> str:
+    """
+    重命名策略文件夹 + 更新 meta.json
+
+    返回: 新路径
+    """
+    if not os.path.exists(folder_path):
+        return ""
+
+    safe_name = re.sub(r'[\\/:*?"<>|]', '_', new_name).strip()
+    parent = os.path.dirname(folder_path)
+    new_path = os.path.join(parent, safe_name)
+
+    try:
+        os.rename(folder_path, new_path)
+    except OSError:
+        return ""
+
+    # 更新 meta.json
+    meta = _read_meta(new_path)
+    meta["name"] = new_name
+    meta["modified"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    meta_path = os.path.join(new_path, "meta.json")
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    return new_path
+
+
+def create_category(name: str) -> str:
+    """
+    创建分类文件夹
+
+    返回: 文件夹路径
+    """
+    base_dir = _get_user_strategies_dir()
+    safe_name = re.sub(r'[\\/:*?"<>|]', '_', name).strip()
+    folder = os.path.join(base_dir, safe_name)
+    os.makedirs(folder, exist_ok=True)
+
+    # 标记为分类文件夹
+    marker = os.path.join(folder, ".category")
+    with open(marker, "w") as f:
+        f.write("")
+
+    return folder
+
+
+def move_strategy(folder_path: str, target_category: str) -> str:
+    """
+    将策略文件夹移动到目标分类下
+
+    返回: 新路径
+    """
+    if not os.path.exists(folder_path):
+        return ""
+
+    base_dir = _get_user_strategies_dir()
+    target_dir = os.path.join(base_dir, target_category)
+    if not os.path.exists(target_dir):
+        return ""
+
+    folder_name = os.path.basename(folder_path)
+    new_path = os.path.join(target_dir, folder_name)
+    try:
+        shutil.move(folder_path, new_path)
+    except shutil.Error:
+        return ""
+    return new_path
+
+
+# ============================================================
+# 数据迁移
+# ============================================================
+
+def migrate_legacy_strategies() -> int:
+    """
+    将 strategy/examples/ 中的旧扁平 .py 策略迁移到 user_strategies/
+
+    预置示例 (ma_cross, rsi_strategy, grid_trading) 不迁移
+
+    返回: 迁移数量
+    """
+    old_dir = _get_preset_dir()
+    new_dir = _get_user_strategies_dir()
+
+    if not os.path.exists(old_dir):
+        return 0
+
+    preset_names = {"ma_cross.py", "rsi_strategy.py", "grid_trading.py", "__init__.py"}
+    migrated = 0
+
+    for fname in sorted(os.listdir(old_dir)):
+        if fname in preset_names or not fname.endswith(".py"):
+            continue
+        fpath = os.path.join(old_dir, fname)
+        if not os.path.isfile(fpath):
+            continue
+
+        code = load_strategy_code(fpath)
+        if not code:
+            continue
+
+        info = extract_strategy_info(fpath)
+        strategy_name = info.get("display_name") or fname.replace(".py", "")
+
+        # 如果目标已存在，跳过
+        safe_name = re.sub(r'[\\/:*?"<>|]', '_', strategy_name).strip()
+        target_folder = os.path.join(new_dir, safe_name)
+        if os.path.exists(target_folder):
+            continue
+
+        save_strategy_with_meta(
+            code=code,
+            name=strategy_name,
+            description=info.get("description", ""),
+            template=info.get("template", ""),
         )
+        migrated += 1
 
-    os.makedirs(output_dir, exist_ok=True)
-
-    safe_name = re.sub(r'[^\w\-_]', '_', name)
-    filename = f"{safe_name}.py"
-    filepath = os.path.join(output_dir, filename)
-
-    # 如果 code 已有元数据头则直接用，否则插入
-    if "# 用户描述:" not in code and description:
-        # 在第一个 """ 之前插入元数据行
-        lines = code.split("\n")
-        new_lines = []
-        inserted = False
-        for line in lines:
-            if not inserted and line.strip().startswith('"""'):
-                new_lines.append(f"# 用户描述: {description}")
-                if template:
-                    new_lines.append(f"# 匹配模板: {template}")
-                new_lines.append(f"# 保存时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                inserted = True
-            new_lines.append(line)
-        code = "\n".join(new_lines)
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(code)
-
-    return filepath
+    return migrated

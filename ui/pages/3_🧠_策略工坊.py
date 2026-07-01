@@ -17,6 +17,7 @@ from factor_builder.templates import get_all_templates, get_templates_by_categor
 from factor_builder.generator import (
     generate_strategy_code, save_strategy, save_strategy_with_meta,
     list_generated_strategies, load_strategy_code, extract_strategy_info,
+    delete_strategy, rename_strategy, create_category,
 )
 from factor_builder.parser import parse
 
@@ -186,7 +187,6 @@ with tab1:
 
             with col3:
                 if st.button("⏮️ 立即回测此策略", use_container_width=True):
-                    # 先保存
                     filepath = save_strategy_with_meta(
                         result["code"], strategy_name,
                         description=user_input.strip(),
@@ -249,149 +249,245 @@ with tab2:
 # ============================================================
 with tab3:
     st.markdown("### 📁 我的策略")
-    st.markdown("管理已保存和生成的策略文件")
+    st.markdown("管理已保存的策略 — 支持文件夹分类、重命名、删除")
 
     # 初始化 session state
     if "viewing_strategy_path" not in st.session_state:
         st.session_state.viewing_strategy_path = None
     if "copy_confirmed" not in st.session_state:
         st.session_state.copy_confirmed = False
+    if "rename_target" not in st.session_state:
+        st.session_state.rename_target = None
+    if "delete_target" not in st.session_state:
+        st.session_state.delete_target = None
+    if "show_new_category" not in st.session_state:
+        st.session_state.show_new_category = False
 
-    # ----- 刷新策略列表 -----
+    # ---- 新建分类 + 刷新 ----
+    col_btn1, col_btn2 = st.columns([1, 5])
+    with col_btn1:
+        if st.button("📂 新建分类", use_container_width=True):
+            st.session_state.show_new_category = True
+            st.rerun()
+    with col_btn2:
+        if st.button("🔄 刷新列表", use_container_width=False):
+            st.cache_data.clear()
+            st.rerun()
+
+    # 新建分类弹窗
+    if st.session_state.show_new_category:
+        cat_name = st.text_input("分类名称", placeholder="如: 趋势策略、震荡策略…", key="new_cat_input")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅ 创建", use_container_width=True) and cat_name.strip():
+                create_category(cat_name.strip())
+                st.session_state.show_new_category = False
+                st.rerun()
+        with c2:
+            if st.button("取消", key="cancel_cat", use_container_width=True):
+                st.session_state.show_new_category = False
+                st.rerun()
+
+    # ---- 重命名弹窗 ----
+    if st.session_state.rename_target:
+        target = st.session_state.rename_target
+        st.warning(f"重命名: **{os.path.basename(target)}**")
+        new_name = st.text_input("新名称", value=os.path.basename(target), key="rename_input")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅ 确认重命名", use_container_width=True) and new_name.strip():
+                new_path = rename_strategy(target, new_name.strip())
+                if new_path:
+                    if st.session_state.viewing_strategy_path == target:
+                        st.session_state.viewing_strategy_path = new_path
+                    st.success(f"已重命名为: {new_name.strip()}")
+                else:
+                    st.error("重命名失败")
+                st.session_state.rename_target = None
+                st.rerun()
+        with c2:
+            if st.button("取消", key="cancel_rename", use_container_width=True):
+                st.session_state.rename_target = None
+                st.rerun()
+
+    # ---- 删除确认 ----
+    if st.session_state.delete_target:
+        target = st.session_state.delete_target
+        is_cat = os.path.exists(os.path.join(target, ".category"))
+        label = "分类文件夹及其所有策略" if is_cat else "策略文件夹"
+        st.error(f"⚠️ 确认删除{label}: **{os.path.basename(target)}**？此操作不可撤销！")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🗑️ 确认删除", use_container_width=True):
+                if delete_strategy(target):
+                    if st.session_state.viewing_strategy_path == target:
+                        st.session_state.viewing_strategy_path = None
+                    st.success("已删除")
+                else:
+                    st.error("删除失败")
+                st.session_state.delete_target = None
+                st.rerun()
+        with c2:
+            if st.button("取消", key="cancel_delete", use_container_width=True):
+                st.session_state.delete_target = None
+                st.rerun()
+
+    # ----- 策略列表（树形结构）-----
     strategies = list_generated_strategies()
 
     if not strategies:
         st.info("📭 还没有保存的策略，去「因子构建器」创建一个吧！")
     else:
-        # ===== 策略列表 =====
         st.markdown("---")
 
         for i, strat in enumerate(strategies):
-            # 提取详细信息
-            info = extract_strategy_info(strat["path"])
-            display_name = info.get("display_name") or strat["name"]
-            description = info.get("description") or "（无描述）"
+            is_cat = strat.get("is_category", False)
 
-            col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
+            if is_cat:
+                # ---- 分类文件夹 ----
+                children = strat.get("children", [])
+                with st.expander(f"📂 **{strat['name']}**  ({len(children)} 个策略)", expanded=True):
+                    c0, cr, cd = st.columns([5, 0.8, 0.8])
+                    with cr:
+                        if st.button("✏️", key=f"rename_cat_{i}", help="重命名分类"):
+                            st.session_state.rename_target = strat["path"]
+                            st.rerun()
+                    with cd:
+                        if st.button("🗑️", key=f"delete_cat_{i}", help="删除分类及其中所有策略"):
+                            st.session_state.delete_target = strat["path"]
+                            st.rerun()
 
-            with col1:
-                tag = "🤖" if strat["is_generated"] else "📝"
-                st.markdown(
-                    f"**{tag} {display_name}**  "
-                    f"<small style='color: #888888;'>{strat['modified']}</small>",
-                    unsafe_allow_html=True,
-                )
-                # 显示一行简述
-                desc_text = description[:60] + "…" if len(description) > 60 else description
-                st.caption(desc_text)
-
-            with col2:
-                if st.button("📖 查看", key=f"view_{i}_{strat['name']}", use_container_width=True):
-                    st.session_state.viewing_strategy_path = strat["path"]
-                    st.rerun()
-
-            with col3:
-                if st.button("⏮️ 回测", key=f"bt_{i}_{strat['name']}", use_container_width=True):
-                    st.session_state.goto_backtest = strat["name"]
-                    # 尝试直接跳转
-                    try:
-                        st.switch_page("pages/4_⏮️_策略回测.py")
-                    except Exception:
-                        st.success("✅ 已选择策略，请切换到 **「策略回测」** 页面")
-
-            with col4:
-                # 删除按钮（仅标记，实际删除需要另外实现）
-                pass
-
-            st.markdown("<hr style='margin:4px 0;border-color:#E8E8E8;'>", unsafe_allow_html=True)
-
-        # ===== 查看策略详情容器 =====
-        if st.session_state.viewing_strategy_path:
-            st.markdown("---")
-            st.markdown("### 📖 策略详情")
-
-            viewing_path = st.session_state.viewing_strategy_path
-            info = extract_strategy_info(viewing_path)
-
-            if not info["code"]:
-                st.warning("⚠️ 无法读取策略文件")
+                    if not children:
+                        st.caption("（空分类，可将策略移入此处）")
+                    for j, child in enumerate(children):
+                        _render_strategy_row(child, f"{i}_cat_{j}")
             else:
-                display_name = info["display_name"] or info["name"]
-                description = info["description"] or "（该策略未包含描述信息）"
-                code = info["code"]
+                # ---- 顶层策略（未分类）----
+                _render_strategy_row(strat, f"top_{i}")
 
-                # 关闭查看按钮
-                if st.button("✖ 关闭", key="close_view"):
-                    st.session_state.viewing_strategy_path = None
-                    st.rerun()
+    # ===== 查看策略详情容器 =====
+    if st.session_state.viewing_strategy_path:
+        st.markdown("---")
+        st.markdown("### 📖 策略详情")
 
-                # ---- 策略详情容器 ----
-                # 使用自定义 HTML 容器（名称 + 描述 + 代码）
-                st.markdown(f"""
+        viewing_path = st.session_state.viewing_strategy_path
+        info = extract_strategy_info(viewing_path)
+
+        if not info["code"]:
+            st.warning("⚠️ 无法读取策略文件")
+        else:
+            display_name = info["display_name"] or info["name"]
+            description = info["description"] or "（该策略未包含描述信息）"
+            code = info["code"]
+
+            if st.button("✖ 关闭", key="close_view"):
+                st.session_state.viewing_strategy_path = None
+                st.rerun()
+
+            st.markdown(f"""
+            <div style="
+                background: #F5F5F5;
+                border: 1px solid #E0E0E0;
+                border-radius: 10px;
+                padding: 0;
+                margin: 8px 0;
+                overflow: hidden;
+            ">
                 <div style="
-                    background: #F5F5F5;
-                    border: 1px solid #E0E0E0;
-                    border-radius: 10px;
-                    padding: 0;
-                    margin: 8px 0;
-                    overflow: hidden;
+                    background: #FAFAFA;
+                    padding: 16px 20px;
+                    border-bottom: 1px solid #E8E8E8;
                 ">
-                    <!-- 顶部栏：策略名 + 描述 -->
-                    <div style="
-                        background: #FAFAFA;
-                        padding: 16px 20px;
-                        border-bottom: 1px solid #E8E8E8;
-                    ">
-                        <div style="font-size: 1.1rem; font-weight: 700; color: #2C3E50; margin-bottom: 6px;">
-                            🧠 {display_name}
-                        </div>
-                        <div style="font-size: 0.9rem; color: #555555;">
-                            📝 {description}
-                        </div>
+                    <div style="font-size: 1.1rem; font-weight: 700; color: #2C3E50; margin-bottom: 6px;">
+                        🧠 {display_name}
+                    </div>
+                    <div style="font-size: 0.9rem; color: #555555;">
+                        📝 {description}
                     </div>
                 </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            import hashlib
+            uid = hashlib.md5(viewing_path.encode()).hexdigest()[:8]
+
+            col_code, col_copy = st.columns([5, 1])
+            with col_code:
+                st.caption("📄 策略代码")
+            with col_copy:
+                st.markdown(f"""
+                <textarea id="code_{uid}" style="display:none;">{code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</textarea>
+                <button onclick="
+                    var el = document.getElementById('code_{uid}');
+                    el.style.display = 'block';
+                    el.select();
+                    try {{
+                        navigator.clipboard.writeText(el.value);
+                        this.innerText = '✅ 已复制!';
+                    }} catch(e) {{
+                        document.execCommand('copy');
+                        this.innerText = '✅ 已复制!';
+                    }}
+                    el.style.display = 'none';
+                    setTimeout(function() {{ this.innerText = '📋 复制代码'; }}.bind(this), 2000);
+                " style="
+                    background: #2E86C1;
+                    color: #FFFFFF;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 6px 16px;
+                    font-size: 0.85rem;
+                    cursor: pointer;
+                    white-space: nowrap;
+                ">📋 复制代码</button>
                 """, unsafe_allow_html=True)
 
-                # ---- 代码块（含复制按钮） ----
-                # 生成唯一 ID 避免多策略查看时冲突
-                import hashlib
-                uid = hashlib.md5(viewing_path.encode()).hexdigest()[:8]
+            st.code(code, language="python", line_numbers=True)
 
-                col_code, col_copy = st.columns([5, 1])
-                with col_code:
-                    st.caption("📄 策略代码")
-                with col_copy:
-                    # 使用 hidden textarea + JS 复制，避免转义问题
-                    st.markdown(f"""
-                    <textarea id="code_{uid}" style="display:none;">{code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</textarea>
-                    <button onclick="
-                        var el = document.getElementById('code_{uid}');
-                        el.style.display = 'block';
-                        el.select();
-                        try {{
-                            navigator.clipboard.writeText(el.value);
-                            this.innerText = '✅ 已复制!';
-                        }} catch(e) {{
-                            document.execCommand('copy');
-                            this.innerText = '✅ 已复制!';
-                        }}
-                        el.style.display = 'none';
-                        setTimeout(function() {{ this.innerText = '📋 复制代码'; }}.bind(this), 2000);
-                    " style="
-                        background: #2E86C1;
-                        color: #FFFFFF;
-                        border: none;
-                        border-radius: 6px;
-                        padding: 6px 16px;
-                        font-size: 0.85rem;
-                        cursor: pointer;
-                        white-space: nowrap;
-                    ">📋 复制代码</button>
-                    """, unsafe_allow_html=True)
+            if st.button("⬆ 收起详情", key="close_view_bottom"):
+                st.session_state.viewing_strategy_path = None
+                st.rerun()
 
-                st.code(code, language="python", line_numbers=True)
 
-                # 再次提供关闭按钮
-                if st.button("⬆ 收起详情", key="close_view_bottom"):
-                    st.session_state.viewing_strategy_path = None
-                    st.rerun()
+# ---- 辅助函数：渲染单个策略行 ----
+def _render_strategy_row(strat: dict, key_prefix: str):
+    """渲染一个策略行（名称 + 描述 + 查看/回测/重命名/删除）"""
+    path = strat["path"]
+    info = extract_strategy_info(path)
+    display_name = info.get("display_name") or strat.get("name", "")
+    description = info.get("description") or strat.get("description", "") or "（无描述）"
+    modified = strat.get("modified", "")
+
+    col1, col2, col3, col4, col5 = st.columns([4, 1, 1, 0.5, 0.5])
+
+    with col1:
+        st.markdown(
+            f"📄 **{display_name}**  "
+            f"<small style='color: #888888;'>{modified}</small>",
+            unsafe_allow_html=True,
+        )
+        desc_text = description[:50] + "…" if len(description) > 50 else description
+        st.caption(desc_text)
+
+    with col2:
+        if st.button("📖 查看", key=f"view_{key_prefix}", use_container_width=True):
+            st.session_state.viewing_strategy_path = path
+            st.rerun()
+
+    with col3:
+        if st.button("⏮️ 回测", key=f"bt_{key_prefix}", use_container_width=True):
+            st.session_state.goto_backtest = display_name
+            try:
+                st.switch_page("pages/4_⏮️_策略回测.py")
+            except Exception:
+                st.success("✅ 已选择策略，请切换到 **「策略回测」** 页面")
+
+    with col4:
+        if st.button("✏️", key=f"rn_{key_prefix}", help="重命名"):
+            st.session_state.rename_target = path
+            st.rerun()
+
+    with col5:
+        if st.button("🗑️", key=f"del_{key_prefix}", help="删除"):
+            st.session_state.delete_target = path
+            st.rerun()

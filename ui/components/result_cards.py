@@ -86,7 +86,7 @@ def show_equity_chart(equity_df: pd.DataFrame, title: str = "权益曲线"):
         rows=2, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.08,
-        row_weights=[0.7, 0.3],
+        row_heights=[0.7, 0.3],
         subplot_titles=[title, "回撤曲线 (%)"],
     )
 
