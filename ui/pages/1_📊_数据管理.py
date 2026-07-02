@@ -28,17 +28,19 @@ _default_https = _default_proxy.get("https", "")
 
 # ---- 调试面板（部署后可删除）----
 with st.expander("🔧 调试信息", expanded=False):
-    st.write(f"默认 HTTP 代理: `{_default_http}`")
-    st.write(f"默认 HTTPS 代理: `{_default_https}`")
-    if st.button("🧪 快速测试代理"):
-        import requests
+    st.write(f"代理配置: HTTP=`{_default_http}` HTTPS=`{_default_https}`")
+    if st.button("🧪 快速测试 CCXT 连接"):
+        import ccxt, time
+        t0 = time.time()
         try:
-            r = requests.get("https://api.binance.com/api/v3/ping",
-                           proxies={"http": _default_http, "https": _default_https},
-                           timeout=5)
-            st.success(f"✅ 代理连通! Binance ping: {r.status_code}")
+            ex = ccxt.binance({
+                "proxies": {"http": _default_http, "https": _default_https},
+                "timeout": 8000,
+            })
+            t = ex.fetch_time()
+            st.success(f"✅ 币安连接成功! ({(time.time()-t0):.1f}s)")
         except Exception as e:
-            st.error(f"❌ 代理不通: {e}")
+            st.error(f"❌ {type(e).__name__}: {str(e)[:200]}")
 
 # ===== 第一步：选择数据源 =====
 st.markdown("---")
@@ -196,8 +198,6 @@ if st.session_state.trigger_load and not st.session_state.symbol_list_loaded:
             proxies["http"] = proxy_http
         if proxy_https:
             proxies["https"] = proxy_https
-
-    st.info(f"🔍 调试: proxy_http=`{proxy_http}`, proxy_https=`{proxy_https}`, proxies=`{proxies}`")
 
     with st.spinner(f"正在从 {exchange_name.upper()} 加载 {active_market} 交易对列表..."):
         try:
