@@ -26,6 +26,20 @@ _default_proxy = get_proxy_config()
 _default_http = _default_proxy.get("http", "")
 _default_https = _default_proxy.get("https", "")
 
+# ---- 调试面板（部署后可删除）----
+with st.expander("🔧 调试信息", expanded=False):
+    st.write(f"默认 HTTP 代理: `{_default_http}`")
+    st.write(f"默认 HTTPS 代理: `{_default_https}`")
+    if st.button("🧪 快速测试代理"):
+        import requests
+        try:
+            r = requests.get("https://api.binance.com/api/v3/ping",
+                           proxies={"http": _default_http, "https": _default_https},
+                           timeout=5)
+            st.success(f"✅ 代理连通! Binance ping: {r.status_code}")
+        except Exception as e:
+            st.error(f"❌ 代理不通: {e}")
+
 # ===== 第一步：选择数据源 =====
 st.markdown("---")
 st.markdown("### 第一步：选择交易所和配置")
@@ -182,6 +196,8 @@ if st.session_state.trigger_load and not st.session_state.symbol_list_loaded:
             proxies["http"] = proxy_http
         if proxy_https:
             proxies["https"] = proxy_https
+
+    st.info(f"🔍 调试: proxy_http=`{proxy_http}`, proxy_https=`{proxy_https}`, proxies=`{proxies}`")
 
     with st.spinner(f"正在从 {exchange_name.upper()} 加载 {active_market} 交易对列表..."):
         try:
