@@ -100,12 +100,26 @@ def truncate_string(text: str, max_len: int = 20) -> str:
 
 def get_proxy_config() -> Dict[str, str]:
     """
-    从配置文件读取代理设置
+    获取代理设置（环境变量优先，配置文件兜底）
+
+    Docker 容器内通过环境变量传入 host.docker.internal:7897
+    本地运行读取 config/settings.yaml 中的 127.0.0.1:7897
 
     返回:
-        {"http": "http://127.0.0.1:7897", "https": "http://127.0.0.1:7897"}
-        如果配置中未启用代理，返回空字典
+        {"http": "...", "https": "..."}  或空字典
     """
+    # 优先使用环境变量（Docker 模式）
+    env_http = os.environ.get("http_proxy", "") or os.environ.get("HTTP_PROXY", "")
+    env_https = os.environ.get("https_proxy", "") or os.environ.get("HTTPS_PROXY", "")
+    if env_http or env_https:
+        result = {}
+        if env_http:
+            result["http"] = env_http
+        if env_https:
+            result["https"] = env_https
+        return result
+
+    # 回退到配置文件（本地模式）
     try:
         config = load_config()
         proxy = config.get("proxy", {})

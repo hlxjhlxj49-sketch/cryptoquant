@@ -10,6 +10,12 @@ x-base: &base
     - "8501:8501"
   environment:
     - TZ=Asia/Shanghai
+    # Docker 容器内用 host.docker.internal 访问宿主机代理
+    - http_proxy=http://host.docker.internal:7897
+    - https_proxy=http://host.docker.internal:7897
+    - HTTP_PROXY=http://host.docker.internal:7897
+    - HTTPS_PROXY=http://host.docker.internal:7897
+    - NO_PROXY=localhost,127.0.0.1,.local
   restart: unless-stopped
 
 services:
