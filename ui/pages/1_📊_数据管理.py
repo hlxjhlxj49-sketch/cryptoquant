@@ -122,6 +122,8 @@ if "loaded_market_type" not in st.session_state:
     st.session_state.loaded_market_type = None
 if "all_symbols_cache" not in st.session_state:
     st.session_state.all_symbols_cache = []
+if "trigger_load" not in st.session_state:
+    st.session_state.trigger_load = False
 
 # ---- 4 个市场类型按钮 ----
 st.markdown("**选择加密货币类型:**")
@@ -149,6 +151,7 @@ for i, (mt_key, mt_label) in enumerate(market_types):
             st.session_state.loaded_market_type = mt_key
             st.session_state.symbol_list_loaded = False
             st.session_state.all_symbols_cache = []
+            st.session_state.trigger_load = False  # 切换类型后需重新点加载
             st.rerun()
 
 # 使用 session state 中记录的市场类型
@@ -167,10 +170,11 @@ with col_l:
     if st.button("🔄 加载交易所列表", use_container_width=True):
         st.session_state.symbol_list_loaded = False
         st.session_state.all_symbols_cache = []
+        st.session_state.trigger_load = True
         st.rerun()
 
-# 加载交易对列表
-if not st.session_state.symbol_list_loaded or not st.session_state.all_symbols_cache:
+# 加载交易对列表（仅在用户点击按钮后才联网）
+if st.session_state.trigger_load and not st.session_state.symbol_list_loaded:
     proxies = None
     if proxy_http or proxy_https:
         proxies = {}
@@ -206,12 +210,19 @@ if not st.session_state.symbol_list_loaded or not st.session_state.all_symbols_c
 
 # ---- 过滤后的列表 ----
 all_syms = st.session_state.all_symbols_cache
+
+if not st.session_state.symbol_list_loaded:
+    st.info("👆 点击上方 **「🔄 加载交易所列表」** 按钮，从交易所获取可用交易对（需要代理已开启）")
+elif not all_syms:
+    st.warning(f"⚠️ {active_market} 类型下未找到交易对，请尝试其他市场类型或检查网络")
+
 if search_filter.strip():
     filtered = [s for s in all_syms if search_filter.strip().upper() in s.upper()]
 else:
     filtered = all_syms
 
-st.caption(f"共 {len(all_syms)} 个交易对，当前显示 {len(filtered)} 个")
+if st.session_state.symbol_list_loaded:
+    st.caption(f"共 {len(all_syms)} 个交易对，当前显示 {len(filtered)} 个")
 
 # ---- 复选框列表 ----
 if filtered:
