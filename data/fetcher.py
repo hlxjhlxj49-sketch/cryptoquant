@@ -152,13 +152,13 @@ class DataFetcher:
         if reload or not self.exchange.markets:
             log.info(f"正在获取 {self.exchange_name} 交易对列表...")
             try:
-                markets = self.exchange.load_markets(reload=reload)
-                log.info(f"获取到 {len(markets)} 个交易对")
+                self.exchange.load_markets(reload=reload)
+                log.info(f"获取到 {len(self.exchange.markets)} 个交易对")
             except Exception as e:
                 log.error(f"获取交易对列表失败: {e}")
                 log.info("💡 提示：可能需要配置代理或检查网络连接")
                 return {}
-        return self.exchange.markets
+        return self.exchange.markets or {}
 
     def get_symbols_by_type(self, market_type: Optional[str] = None) -> Dict[str, List[str]]:
         """
@@ -171,7 +171,7 @@ class DataFetcher:
             {"spot": [...], "swap": [...], "future": [...], "option": [...]}
         """
         markets = self.fetch_markets()
-        if not markets:
+        if not markets or not isinstance(markets, dict):
             return {"spot": [], "swap": [], "future": [], "option": []}
 
         result = {"spot": [], "swap": [], "future": [], "option": []}
