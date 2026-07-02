@@ -190,8 +190,9 @@ class DataFetcher:
     def get_usdt_symbols(self) -> List[str]:
         """获取所有USDT计价的现货交易对"""
         self.fetch_markets()
+        syms = self.exchange.symbols or []
         symbols = [
-            s for s in self.exchange.symbols
+            s for s in syms
             if s.endswith("/USDT")
             and not any(x in s for x in ["USDC/USDT", "BUSD/USDT", "TUSD/USDT", "FDUSD/USDT"])
             and ":" not in s  # 排除合约
@@ -202,8 +203,9 @@ class DataFetcher:
     def get_swap_symbols(self) -> List[str]:
         """获取所有永续合约交易对（USDT本位）"""
         self.fetch_markets()
+        syms = self.exchange.symbols or []
         symbols = [
-            s for s in self.exchange.symbols
+            s for s in syms
             if ":USDT" in s or s.endswith("/USDT:USDT")
         ]
         symbols.sort()
