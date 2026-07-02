@@ -186,14 +186,17 @@ class DataManager:
         返回:
             {"success": 成功数, "failed": 失败数, "results": {symbol: count}}
         """
-        # 主流币种列表（按市值排序）
-        top_symbols = [
-            "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
-            "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "LINK/USDT",
-            "MATIC/USDT", "UNI/USDT", "ATOM/USDT", "LTC/USDT", "ETC/USDT",
-            "FIL/USDT", "APT/USDT", "ARB/USDT", "OP/USDT", "NEAR/USDT",
-            "INJ/USDT", "TIA/USDT", "SEI/USDT", "SUI/USDT", "ORDI/USDT",
-        ]
+        # 主流币种列表（按市值排序，根据市场类型自动适配格式）
+        _base_coins = ["BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE",
+                       "AVAX", "DOT", "LINK", "MATIC", "UNI", "ATOM", "LTC",
+                       "ETC", "FIL", "APT", "ARB", "OP", "NEAR",
+                       "INJ", "TIA", "SEI", "SUI", "ORDI"]
+        if self.market_type == "spot":
+            top_symbols = [f"{c}/USDT" for c in _base_coins]
+        elif self.market_type in ("swap", "future"):
+            top_symbols = [f"{c}/USDT:USDT" for c in _base_coins]
+        else:
+            top_symbols = [f"{c}/USDT" for c in _base_coins]
 
         symbols = top_symbols[:top_n]
         results = {}
