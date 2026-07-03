@@ -26,45 +26,6 @@ _default_proxy = get_proxy_config()
 _default_http = _default_proxy.get("http", "")
 _default_https = _default_proxy.get("https", "")
 
-# ---- 调试面板（部署后可删除）----
-with st.expander("🔧 调试信息", expanded=True):
-    st.write(f"代理配置: HTTP=`{_default_http}` HTTPS=`{_default_https}`")
-
-    if st.button("🧪 深度诊断"):
-        import ccxt, time, os, socket
-        results = []
-
-        # 1. 检查环境变量
-        results.append(f"**Python:** {os.sys.executable}")
-        results.append(f"**http_proxy env:** `{os.environ.get('http_proxy','未设置')}`")
-        results.append(f"**https_proxy env:** `{os.environ.get('https_proxy','未设置')}`")
-
-        # 2. 检查 7897 端口是否可达
-        try:
-            s = socket.socket()
-            s.settimeout(3)
-            s.connect(('127.0.0.1', 7897))
-            s.close()
-            results.append("**7897端口:** ✅ 可达")
-        except Exception as e:
-            results.append(f"**7897端口:** ❌ {e}")
-
-        # 3. CCXT 测试（详细错误）
-        t0 = time.time()
-        for test_name, config in [
-            ("带代理", {"proxies": {"http": _default_http, "https": _default_https}, "timeout": 10000}),
-            ("无代理", {"timeout": 5000}),
-        ]:
-            try:
-                ex = ccxt.binance(config)
-                t = ex.fetch_time()
-                results.append(f"**CCXT {test_name}:** ✅ {(time.time()-t0):.1f}s")
-            except Exception as e:
-                results.append(f"**CCXT {test_name}:** ❌ {type(e).__name__}: {str(e)[:300]}")
-
-        for r in results:
-            st.markdown(r)
-
 # ===== 第一步：选择数据源 =====
 st.markdown("---")
 st.markdown("### 第一步：选择交易所和配置")
