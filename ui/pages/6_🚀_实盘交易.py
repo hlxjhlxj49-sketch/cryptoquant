@@ -98,9 +98,117 @@ with col2:
         help="OKX等交易所需要API密码，币安留空即可",
     )
 
-# ===== 第二步：交易参数 =====
+# ===== 第二步：测试 API 连接 =====
 st.markdown("---")
-st.markdown("### 第二步：设置交易参数")
+st.markdown("### 第二步：测试 API 连接")
+st.markdown("验证 API Key 是否正确、网络是否连通、账户权限是否足够")
+
+# 初始化 session state
+if "api_tested" not in st.session_state:
+    st.session_state.api_tested = False
+if "test_error" not in st.session_state:
+    st.session_state.test_error = ""
+if "test_result" not in st.session_state:
+    st.session_state.test_result = {}
+
+col_test1, col_test2 = st.columns([2, 1])
+
+with col_test1:
+    test_btn = st.button(
+        "🔍 测试 API 连接",
+        type="primary",
+        use_container_width=True,
+        disabled=not (api_key and api_secret),
+    )
+    if not api_key or not api_secret:
+        st.caption("⚠️ 请先在第一步填入 API Key 和 Secret Key")
+
+with col_test2:
+    if st.button("🔄 重置测试", use_container_width=True):
+        st.session_state.api_tested = False
+        st.session_state.test_error = ""
+        st.session_state.test_result = {}
+        st.session_state.connected = False
+        st.session_state.live_trader = None
+        st.rerun()
+
+if test_btn:
+    st.session_state.api_tested = False
+    st.session_state.test_error = ""
+    st.session_state.test_result = {}
+    st.session_state.connected = False
+
+    with st.spinner("正在验证 API 连接..."):
+        try:
+            # 创建交易器并尝试连接
+            trader = LiveTrader(
+                api_key=api_key,
+                secret=api_secret,
+                password=api_password,
+                exchange=exchange_name,
+                test_mode=test_mode,
+            )
+
+            if not trader.connect():
+                st.session_state.test_error = "连接失败 — 请检查网络或代理设置，确保能访问交易所 API"
+                st.error(f"❌ {st.session_state.test_error}")
+            else:
+                # 连接成功，获取账户信息
+                balance = trader.get_balance("USDT")
+                st.session_state.test_result = {
+                    "exchange": exchange_name.upper(),
+                    "test_mode": test_mode,
+                    "balance": balance,
+                }
+                st.session_state.api_tested = True
+                st.session_state.live_trader = trader
+
+        except Exception as e:
+            error_msg = str(e)
+            if "BadSymbol" in error_msg or "does not have permission" in error_msg:
+                st.session_state.test_error = f"API 权限不足 — 请确认已开启交易权限（不要开启提现权限）\n详情: {error_msg[:200]}"
+            elif "Invalid API-key" in error_msg or "authentication" in error_msg.lower():
+                st.session_state.test_error = f"API Key 无效 — 请检查 Key 和 Secret 是否正确\n详情: {error_msg[:200]}"
+            elif "NetworkError" in type(e).__name__ or "timeout" in error_msg.lower():
+                st.session_state.test_error = f"网络无法访问交易所 — 请检查代理是否已开启\n详情: {error_msg[:200]}"
+            elif "ExchangeNotAvailable" in type(e).__name__:
+                st.session_state.test_error = f"交易所暂时不可用 — 请稍后重试\n详情: {error_msg[:200]}"
+            else:
+                st.session_state.test_error = f"未知错误: {type(e).__name__}: {error_msg[:300]}"
+            st.error(f"❌ {st.session_state.test_error}")
+
+# 显示测试结果
+if st.session_state.api_tested and st.session_state.test_result:
+    res = st.session_state.test_result
+    balance = res["balance"]
+    st.markdown(f"""
+    <div class="success-box">
+        <b>✅ API 测试通过！</b><br>
+        交易所: {res['exchange']} {'(测试模式)' if res['test_mode'] else '(实盘模式)'}<br>
+        USDT余额: ${balance.get('total', 0):,.2f} (可用: ${balance.get('free', 0):,.2f})<br>
+        <small>API 权限正常，可以执行交易操作</small>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("#### 💰 账户余额")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("USDT 可用", f"${balance.get('free', 0):,.2f}")
+    with col2:
+        st.metric("USDT 冻结", f"${balance.get('used', 0):,.2f}")
+    with col3:
+        st.metric("USDT 总额", f"${balance.get('total', 0):,.2f}")
+
+# 未通过测试时阻止后续操作
+if not st.session_state.api_tested:
+    st.info("👆 请先点击「🔍 测试 API 连接」验证 API 配置")
+    st.stop()
+
+st.session_state.connected = True
+
+# ===== 第三步：交易参数 =====
+st.markdown("---")
+st.markdown("### 第三步：设置交易参数")
 
 col1, col2, col3 = st.columns(3)
 
@@ -142,54 +250,11 @@ with col3:
         help="单日亏损达上限后停止交易",
     )
 
-# ===== 第三步：连接交易所 =====
-st.markdown("---")
-st.markdown("### 第三步：连接交易所")
-
-if st.button("🔌 连接交易所", type="primary", use_container_width=True):
-    if not api_key or not api_secret:
-        st.error("❌ 请输入API Key和Secret Key")
-    else:
-        with st.spinner("正在连接交易所..."):
-            trader = LiveTrader(
-                api_key=api_key,
-                secret=api_secret,
-                password=api_password,
-                exchange=exchange_name,
-                test_mode=test_mode,
-            )
-
-            if trader.connect():
-                st.session_state.live_trader = trader
-                st.session_state.connected = True
-
-                # 获取余额
-                balance = trader.get_balance("USDT")
-                st.markdown(f"""
-                <div class="success-box">
-                    <b>✅ 连接成功！</b><br>
-                    交易所: {exchange_name.upper()} {'(测试模式)' if test_mode else '(实盘模式)'}<br>
-                    USDT余额: ${balance['total']:,.2f} (可用: ${balance['free']:,.2f})
-                </div>
-                """, unsafe_allow_html=True)
-
-                # 显示余额详情
-                st.markdown("#### 💰 账户余额")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("USDT 可用", f"${balance['free']:,.2f}")
-                with col2:
-                    st.metric("USDT 冻结", f"${balance['used']:,.2f}")
-                with col3:
-                    st.metric("USDT 总额", f"${balance['total']:,.2f}")
-            else:
-                st.error(f"❌ 连接失败，请检查API Key和网络")
-
 # ===== 第四步：交易操作 =====
-if st.session_state.get("connected") and st.session_state.get("live_trader"):
-    st.markdown("---")
-    st.markdown("### 第四步：交易操作")
+st.markdown("---")
+st.markdown("### 第四步：交易操作")
 
+if st.session_state.get("live_trader"):
     trader = st.session_state.live_trader
 
     col1, col2, col3 = st.columns(3)
@@ -211,7 +276,7 @@ if st.session_state.get("connected") and st.session_state.get("live_trader"):
                 if order:
                     st.success(f"✅ 买入成功: {symbol} {order_size}")
                 else:
-                    st.error("❌ 买入失败")
+                    st.error("❌ 买入失败，请检查余额和交易权限")
             else:
                 st.warning("请输入有效的交易数量")
 
@@ -222,7 +287,7 @@ if st.session_state.get("connected") and st.session_state.get("live_trader"):
                 if order:
                     st.success(f"✅ 卖出成功: {symbol} {order_size}")
                 else:
-                    st.error("❌ 卖出失败，可能持仓不足")
+                    st.error("❌ 卖出失败，可能持仓不足或交易权限受限")
             else:
                 st.warning("请输入有效的交易数量")
 
@@ -247,8 +312,10 @@ if st.session_state.get("connected") and st.session_state.get("live_trader"):
     if st.button("🔌 断开连接", use_container_width=True):
         trader.disconnect()
         st.session_state.connected = False
+        st.session_state.api_tested = False
         st.session_state.live_trader = None
+        st.session_state.test_result = {}
         st.rerun()
 
 else:
-    st.info("👆 请先配置API Key并点击「连接交易所」")
+    st.info("👆 请先通过第二步的 API 连接测试")
